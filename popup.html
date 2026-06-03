@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>P.promPt</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="logo">
+      <div class="logo-badge">P.</div>
+      <div class="logo-text">prom<span>Pt</span></div>
+    </div>
+    <div class="header-right">
+      <div class="platform-badge" id="platformBadge">
+        <div class="platform-dot"></div>
+        <span id="platformName">detecting…</span>
+      </div>
+      <button class="icon-btn" id="historyBtn" title="Saved prompts">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="settingsBtn" title="Settings">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- MAIN VIEW -->
+  <div class="view" id="mainView">
+
+    <!-- INPUT SECTION -->
+    <div class="section">
+      <div class="section-label">Your prompt</div>
+      <div class="input-wrap">
+        <textarea id="userInput" placeholder="Paste or type your prompt here…" rows="4"></textarea>
+      </div>
+      <div class="quality-row">
+        <span class="quality-label">Quality</span>
+        <div class="quality-bar-track">
+          <div class="quality-bar-fill" id="qualityFill"></div>
+        </div>
+        <span class="quality-score" id="qualityScore">—</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- TEMPLATE SECTION -->
+    <div class="section">
+      <div class="section-label">Template</div>
+      <div class="template-pills">
+        <button class="pill active" data-mode="coding">⌥ Coding</button>
+        <button class="pill" data-mode="study">◎ Study</button>
+        <button class="pill" data-mode="writing">✍ Writing</button>
+        <button class="pill" data-mode="business">◈ Business</button>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- ENHANCE BUTTON -->
+    <div class="section">
+      <button class="enhance-btn" id="enhanceBtn">
+        <span class="btn-icon" id="btnIcon">✦</span>
+        <span id="btnLabel">Enhance Prompt</span>
+      </button>
+    </div>
+
+    <!-- OUTPUT SECTION -->
+    <div class="output-section hidden" id="outputSection">
+      <div class="divider"></div>
+      <div class="section">
+        <div class="output-header">
+          <div class="section-label" style="margin:0">Enhanced</div>
+          <div class="output-actions">
+            <button class="icon-btn" id="copyBtn" title="Copy">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+              </svg>
+            </button>
+            <button class="icon-btn" id="injectBtn" title="Inject into chat">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+              </svg>
+            </button>
+            <button class="icon-btn" id="saveBtn" title="Save to history">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="output-box" id="outputBox"></div>
+        <div class="score-after-row" id="scoreAfterRow">
+          <span class="quality-label">After</span>
+          <div class="quality-bar-track">
+            <div class="quality-bar-fill green" id="scoreAfterFill"></div>
+          </div>
+          <span class="quality-score green" id="scoreAfterVal"></span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- HISTORY VIEW -->
+  <div class="view hidden" id="historyView">
+    <div class="section">
+      <div class="section-label">Saved Prompts</div>
+      <div id="historyList" class="history-list"></div>
+      <div id="historyEmpty" class="empty-state hidden">No saved prompts yet.</div>
+    </div>
+  </div>
+
+  <!-- SETTINGS VIEW -->
+  <div class="view hidden" id="settingsView">
+    <div class="section">
+      <div class="section-label">API Key</div>
+      <input type="password" id="apiKeyInput" class="text-input" placeholder="AIza…" />
+      <button class="save-btn" id="saveApiKey">Save Key</button>
+      <p class="helper-text">Get a free key at aistudio.google.com/app/apikey — stored locally, never shared.</p>
+    </div>
+    <div class="divider"></div>
+    <div class="section">
+      <div class="section-label">Tone</div>
+      <select class="select-input" id="toneSelect">
+        <option value="professional">Professional</option>
+        <option value="casual">Casual</option>
+        <option value="technical">Technical</option>
+        <option value="concise">Concise</option>
+      </select>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
