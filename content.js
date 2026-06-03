@@ -8,57 +8,72 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 function injectPrompt(text) {
-  const textarea = findTextarea();
-  if (!textarea) return false;
+  const el = findTextarea();
+  if (!el) return false;
 
-  // Handle both regular textarea and contenteditable divs
-  if (textarea.tagName === 'TEXTAREA') {
-    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+  el.focus();
+
+  if (el.tagName === 'TEXTAREA') {
+    // Standard textarea (rare on modern AI sites)
+    const nativeSetter = Object.getOwnPropertyDescriptor(
       window.HTMLTextAreaElement.prototype, 'value'
     ).set;
-    nativeInputValueSetter.call(textarea, text);
-    textarea.dispatchEvent(new Event('input', { bubbles: true }));
-    textarea.dispatchEvent(new Event('change', { bubbles: true }));
+    nativeSetter.call(el, text);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+
   } else {
-    // contenteditable (ChatGPT uses a div)
-    textarea.focus();
-    textarea.textContent = text;
-    textarea.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    // contenteditable div (ChatGPT, Claude, Gemini)
+    // Must use execCommand so React/framework picks up the change
+    el.focus();
+
+    // Clear existing content first
+    document.execCommand('selectAll', false, null);
+    document.execCommand('delete', false, null);
+
+    // Insert text — this fires proper input events that React listens to
+    document.execCommand('insertText', false, text);
+
+    // Fallback: if execCommand didn't work (some browsers), set innerHTML
+    if (!el.textContent.trim()) {
+      el.textContent = text;
+      el.dispatchEvent(new InputEvent('input', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'insertText',
+        data: text
+      }));
+    }
   }
 
-  textarea.focus();
+  el.focus();
   return true;
 }
 
 function findTextarea() {
   const host = window.location.hostname;
+  let el = null;
 
   if (host.includes('claude.ai')) {
-    return (
-      document.querySelector('div[contenteditable="true"]') ||
-      document.querySelector('textarea')
-    );
+    el = document.querySelector('div.ProseMirror[contenteditable="true"]') ||
+         document.querySelector('div[contenteditable="true"]');
+  } 
+  else if (host.includes('chatgpt.com') || host.includes('chat.openai')) {
+    el = document.querySelector('#prompt-textarea') ||
+         document.querySelector('div[contenteditable="true"]');
+  } 
+  else if (host.includes('gemini.google')) {
+    el = document.querySelector('.ql-editor') ||
+         document.querySelector('rich-textarea div[contenteditable="true"]') ||
+         document.querySelector('div[contenteditable="true"]');
   }
 
-  if (host.includes('chatgpt.com') || host.includes('chat.openai')) {
-    return (
-      document.querySelector('#prompt-textarea') ||
-      document.querySelector('div[contenteditable="true"]') ||
-      document.querySelector('textarea')
-    );
+  // Fallback: If we didn't find it, find ALL text areas and pick the last one
+  // (The main chat input is almost always the last editable area on the page)
+  if (!el) {
+    const editables = Array.from(document.querySelectorAll('div[contenteditable="true"], textarea:not([hidden])'));
+    el = editables[editables.length - 1];
   }
 
-  if (host.includes('gemini.google')) {
-    return (
-      document.querySelector('.ql-editor') ||
-      document.querySelector('div[contenteditable="true"]') ||
-      document.querySelector('textarea')
-    );
-  }
-
-  // fallback
-  return (
-    document.querySelector('textarea:not([hidden])') ||
-    document.querySelector('div[contenteditable="true"]')
-  );
+  return el;
 }

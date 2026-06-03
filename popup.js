@@ -200,11 +200,43 @@ document.getElementById('copyBtn').addEventListener('click', () => {
 document.getElementById('injectBtn').addEventListener('click', () => {
   if (!currentEnhanced) return;
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    chrome.tabs.sendMessage(tabs[0].id, {
-      type: 'INJECT_PROMPT',
-      text: currentEnhanced
-    }, (res) => {
-      if (chrome.runtime.lastError || !res?.success) {
+    const tabId = tabs[0].id;
+    
+    // Direct injection via scripting API (bulletproof against SPA disconnects)
+    chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      func: (text) => {
+        let el = document.querySelector('#prompt-textarea') || 
+                 document.querySelector('div.ProseMirror[contenteditable="true"]') || 
+                 document.querySelector('.ql-editor') || 
+                 document.querySelector('rich-textarea div[contenteditable="true"]');
+                 
+        if (!el) {
+          const editables = Array.from(document.querySelectorAll('div[contenteditable="true"], textarea:not([hidden])'));
+          el = editables[editables.length - 1];
+        }
+        if (!el) return false;
+
+        el.focus();
+        if (el.tagName === 'TEXTAREA') {
+          const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+          setter.call(el, text);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        } else {
+          document.execCommand('selectAll', false, null);
+          document.execCommand('delete', false, null);
+          document.execCommand('insertText', false, text);
+          if (!el.textContent.trim()) {
+            el.textContent = text;
+            el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+          }
+        }
+        return true;
+      },
+      args: [currentEnhanced]
+    }, (results) => {
+      if (chrome.runtime.lastError || !results?.[0]?.result) {
         showToast('Could not inject — try copying instead', 'error');
       } else {
         showToast('Injected into chat ✓', 'success');
