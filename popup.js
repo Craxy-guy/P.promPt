@@ -201,33 +201,45 @@ enhanceBtn.addEventListener('click', async () => {
 });
 
 function renderOutput(text, skillProfile) {
-  // Render skill profile card if available (roadmap mode)
   let profileHtml = '';
   if (skillProfile) {
-    const level = skillProfile.currentLevel || '—';
-    const skills = (skillProfile.demonstratedSkills || []).join(', ') || '—';
-    const gaps = (skillProfile.criticalGaps || []).slice(0, 4).join(', ') || '—';
-    const skip = (skillProfile.topicsToSkip || []).join(', ') || 'none';
+    const level    = skillProfile.knowledgeLevel || '—';
+    const obj      = (skillProfile.primaryObjective || '—').replace(/_/g, ' ');
+    const strengths= (skillProfile.demonstratedStrengths || []).join(', ') || '—';
+    const topGaps  = (skillProfile.identifiedGaps || [])
+                      .filter(g => g.importance === 'critical' || g.importance === 'high')
+                      .slice(0, 3)
+                      .map(g => `${g.topic}`)
+                      .join(', ') || '—';
+    const nextSteps= (skillProfile.nextLogicalSteps || []).slice(0, 3).join(', ') || '—';
+    const skip     = (skillProfile.topicsToSkip || []).join(', ') || 'none';
+    const style    = skillProfile.constraints?.style || '—';
+
     profileHtml = `
       <div class="skill-card">
-        <div class="skill-card-title">⚡ Skill Analysis</div>
+        <div class="skill-card-title">⚡ Context Analysis</div>
         <div class="skill-row"><span class="skill-key">Level</span><span class="skill-val">${level}</span></div>
-        <div class="skill-row"><span class="skill-key">Mastered</span><span class="skill-val">${skills}</span></div>
-        <div class="skill-row"><span class="skill-key">Top Gaps</span><span class="skill-val gap">${gaps}</span></div>
+        <div class="skill-row"><span class="skill-key">Objective</span><span class="skill-val">${obj}</span></div>
+        <div class="skill-row"><span class="skill-key">Strengths</span><span class="skill-val">${strengths}</span></div>
+        <div class="skill-row"><span class="skill-key">Top Gaps</span><span class="skill-val gap">${topGaps}</span></div>
+        <div class="skill-row"><span class="skill-key">Next Steps</span><span class="skill-val">${nextSteps}</span></div>
         <div class="skill-row"><span class="skill-key">Skipped</span><span class="skill-val muted">${skip}</span></div>
+        <div class="skill-row"><span class="skill-key">Style</span><span class="skill-val">${style}</span></div>
       </div>`;
   }
 
-  // Highlight section labels
   const html = text
-    .replace(/^(Role|Task|Goal|Current State|Skill Gaps? to Close|Roadmap Structure|Milestones?|Resources? Format|Requirements?|Output Format|Constraints?|Context|Format|Instructions?|Phases?):/gm,
+    .replace(/^(Role|Task|Goal|User Context|Skill Gaps? to Address|Approach|Milestones?|Output Format|Constraints?|Current State|Roadmap Structure|Resources? Format|Requirements?|Format|Instructions?|Phases?):/gm,
       '<span class="tag">$1:</span>')
+    .replace(/\[CORE\]/g, '<span class="badge core">[CORE]</span>')
+    .replace(/\[RECOMMENDED\]/g, '<span class="badge rec">[RECOMMENDED]</span>')
+    .replace(/\[OPTIONAL\]/g, '<span class="badge opt">[OPTIONAL]</span>')
+    .replace(/\[ADVANCED\]/g, '<span class="badge adv">[ADVANCED]</span>')
     .replace(/\n/g, '<br>');
 
   outputBox.innerHTML = profileHtml + html;
   outputSection.classList.remove('hidden');
 
-  // Score after
   const afterScore = Math.min(98, 70 + Math.floor(Math.random() * 20));
   scoreAfterFill.style.width = afterScore + '%';
   scoreAfterVal.textContent = afterScore + '%';
@@ -238,7 +250,8 @@ function setLoading(on) {
   if (on) {
     btnIcon.classList.add('spin');
     btnIcon.textContent = '✦';
-    btnLabel.textContent = currentMode === 'roadmap' ? 'Analysing skills…' : 'Enhancing…';
+    const hasContext = contextToggle && contextToggle.checked;
+    btnLabel.textContent = hasContext ? 'Analysing context…' : 'Enhancing…';
   } else {
     btnIcon.classList.remove('spin');
     btnIcon.textContent = '✦';
