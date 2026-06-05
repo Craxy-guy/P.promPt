@@ -503,3 +503,60 @@ textarea::placeholder {
 
 .toast.success { border-color: rgba(34,197,94,0.3); color: var(--green); }
 .toast.error { border-color: rgba(239,68,68,0.3); color: var(--red); }
+
+/* SKILL ANALYSIS CARD */
+.skill-card {
+  background: var(--surface2);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.skill-card-title {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: #A89BFF;
+  margin-bottom: 8px;
+}
+
+.skill-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 4px;
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.skill-key {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  min-width: 56px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.skill-val {
+  color: var(--text-secondary);
+  font-size: 10.5px;
+}
+
+.skill-val.gap {
+  color: var(--amber);
+}
+
+.skill-val.muted {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}

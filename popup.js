@@ -36,6 +36,7 @@ const historyBtn = document.getElementById('historyBtn');
 const settingsBtn = document.getElementById('settingsBtn');
 const apiKeyInput = document.getElementById('apiKeyInput');
 const toneSelect = document.getElementById('toneSelect');
+const contextToggle = document.getElementById('contextToggle');
 
 // ─── INIT ───────────────────────────────────────────────────────────────────
 
@@ -125,12 +126,52 @@ enhanceBtn.addEventListener('click', async () => {
 
     setLoading(true);
 
-    // Route through background service worker so the API key is included
-    // and cross-origin restrictions are handled correctly
+    // 1. Scrape chat context if toggle is checked
+    let chatContext = '';
+    if (contextToggle && contextToggle.checked) {
+      try {
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tabs[0]) {
+          const results = await chrome.scripting.executeScript({
+            target: { tabId: tabs[0].id },
+            func: () => {
+              try {
+                const host = window.location.hostname;
+                let text = '';
+                
+                if (host.includes('chatgpt.com') || host.includes('chat.openai')) {
+                  const msgs = Array.from(document.querySelectorAll('article, [data-message-author-role]'));
+                  if (msgs.length) text = msgs.slice(-4).map(m => m.innerText).join('\n\n---\n\n');
+                } else if (host.includes('claude.ai')) {
+                  const msgs = Array.from(document.querySelectorAll('.font-user-message, .font-claude-message, [data-test-render-count]'));
+                  if (msgs.length) text = msgs.slice(-4).map(m => m.innerText).join('\n\n---\n\n');
+                } else if (host.includes('gemini.google')) {
+                  const msgs = Array.from(document.querySelectorAll('message-content, .message-content'));
+                  if (msgs.length) text = msgs.slice(-4).map(m => m.innerText).join('\n\n---\n\n');
+                }
+
+                if (!text.trim()) {
+                  text = (document.body.innerText || '').slice(-3000);
+                }
+                return text.trim();
+              } catch (e) { return ''; }
+            }
+          });
+          if (results && results[0] && results[0].result) {
+            chatContext = results[0].result;
+          }
+        }
+      } catch (err) {
+        console.warn('Could not scrape context:', err);
+      }
+    }
+
+    // 2. Route through background service worker
     chrome.runtime.sendMessage(
       {
         type: 'ENHANCE_PROMPT',
         prompt,
+        chatContext,
         mode: currentMode,
         tone: data.tone || 'professional',
         apiKey: data.apiKey
@@ -150,7 +191,7 @@ enhanceBtn.addEventListener('click', async () => {
 
         if (response?.enhanced) {
           currentEnhanced = response.enhanced;
-          renderOutput(response.enhanced);
+          renderOutput(response.enhanced, response.skillProfile);
         } else {
           showToast('Unexpected response from API', 'error');
         }
@@ -159,14 +200,31 @@ enhanceBtn.addEventListener('click', async () => {
   });
 });
 
-function renderOutput(text) {
+function renderOutput(text, skillProfile) {
+  // Render skill profile card if available (roadmap mode)
+  let profileHtml = '';
+  if (skillProfile) {
+    const level = skillProfile.currentLevel || '—';
+    const skills = (skillProfile.demonstratedSkills || []).join(', ') || '—';
+    const gaps = (skillProfile.criticalGaps || []).slice(0, 4).join(', ') || '—';
+    const skip = (skillProfile.topicsToSkip || []).join(', ') || 'none';
+    profileHtml = `
+      <div class="skill-card">
+        <div class="skill-card-title">⚡ Skill Analysis</div>
+        <div class="skill-row"><span class="skill-key">Level</span><span class="skill-val">${level}</span></div>
+        <div class="skill-row"><span class="skill-key">Mastered</span><span class="skill-val">${skills}</span></div>
+        <div class="skill-row"><span class="skill-key">Top Gaps</span><span class="skill-val gap">${gaps}</span></div>
+        <div class="skill-row"><span class="skill-key">Skipped</span><span class="skill-val muted">${skip}</span></div>
+      </div>`;
+  }
+
   // Highlight section labels
   const html = text
-    .replace(/^(Role|Task|Requirements?|Output Format|Constraints?|Goal|Context|Format|Instructions?):/gm,
+    .replace(/^(Role|Task|Goal|Current State|Skill Gaps? to Close|Roadmap Structure|Milestones?|Resources? Format|Requirements?|Output Format|Constraints?|Context|Format|Instructions?|Phases?):/gm,
       '<span class="tag">$1:</span>')
     .replace(/\n/g, '<br>');
 
-  outputBox.innerHTML = html;
+  outputBox.innerHTML = profileHtml + html;
   outputSection.classList.remove('hidden');
 
   // Score after
@@ -180,7 +238,7 @@ function setLoading(on) {
   if (on) {
     btnIcon.classList.add('spin');
     btnIcon.textContent = '✦';
-    btnLabel.textContent = 'Enhancing…';
+    btnLabel.textContent = currentMode === 'roadmap' ? 'Analysing skills…' : 'Enhancing…';
   } else {
     btnIcon.classList.remove('spin');
     btnIcon.textContent = '✦';
