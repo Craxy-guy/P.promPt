@@ -81,6 +81,16 @@ Return ONLY a valid JSON object (no markdown fences, no explanation) with this e
 
 function buildMetaPrompt(profile, userPrompt, mode, tone) {
 
+  const baseTemplates = {
+    coding:   `You are an expert software engineer and prompt engineer.`,
+    study:    `You are an expert educator and adaptive learning coach.`,
+    writing:  `You are a professional writer and content strategist.`,
+    business: `You are a senior business consultant and strategist.`,
+    general:  `You are a highly empathetic, knowledgeable life assistant with expertise across everyday domains including health & wellness, mental health and therapy, gaming, relationships, lifestyle, fitness, hobbies, travel, nutrition, personal development, and general problem-solving.`
+  };
+
+  const modePersona = baseTemplates[mode] || baseTemplates.general;
+
   // ── Build the contextual profile block ──────────────────────────────────────
   let profileBlock = '';
   if (profile) {
@@ -169,7 +179,7 @@ PRINCIPLE 8 — REDUNDANCY ELIMINATION:
 `;
 
   // ── Final meta-prompt assembly ──────────────────────────────────────────────
-  return `You are an expert prompt engineer. Your task is to generate a highly personalized, principle-driven prompt based on the user's request and their context profile.
+  return `${modePersona} You are also an expert prompt engineer. Your task is to generate a highly personalized, principle-driven prompt based on the user's request and their context profile.
 ${profileBlock}
 ${principles}
 
