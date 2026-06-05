@@ -1,5 +1,5 @@
 // background.js — service worker
-// Gemini-powered adaptive prompt enhancement engine
+// Intent-first, relevance-gated adaptive prompt engine
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'ENHANCE_PROMPT') {
@@ -8,7 +8,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// ─── GEMINI API CALL ─────────────────────────────────────────────────────────
+// ─── GEMINI API CALL ──────────────────────────────────────────────────────────
 
 async function callGemini(apiKey, promptText, temperature = 0.7) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
@@ -32,173 +32,117 @@ async function callGemini(apiKey, promptText, temperature = 0.7) {
   return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
 }
 
-// ─── STEP 1: UNIVERSAL CONTEXT ANALYZER ──────────────────────────────────────
-// Runs for ANY mode when chat context is available.
-// Returns a structured userProfile JSON.
+// ─── STEP 1: INTENT + RELEVANCE GATE ─────────────────────────────────────────
+// Determines the user's CURRENT intent first.
+// Only extracts enrichment data from history if it is genuinely relevant.
+// Context history never overrides current intent.
 
-async function analyzeContext(apiKey, chatContext, userPrompt) {
-  const analysisPrompt = `You are an expert analyst specializing in user profiling, skill assessment, and learning design. Analyze the conversation history and the user's current request to build a precise profile.
+async function detectIntentAndRelevance(apiKey, chatContext, userPrompt) {
+  const gatePrompt = `You are an intent classifier and relevance evaluator.
 
-CONVERSATION HISTORY:
-${chatContext}
-
-USER'S CURRENT REQUEST:
+CURRENT USER MESSAGE (primary signal — this is what matters most):
 "${userPrompt}"
 
-Return ONLY a valid JSON object (no markdown fences, no explanation) with this exact structure:
+RECENT CONVERSATION HISTORY (secondary signal — only relevant if it directly relates to the current message):
+${chatContext}
+
+Your job:
+1. Identify EXACTLY what the user wants RIGHT NOW based on their current message.
+2. Determine whether the conversation history is genuinely relevant to this request.
+
+RELEVANCE RULES:
+- Mark as RELEVANT if the user's message: references previous discussion, asks for continuation, refinement, follow-up, or expansion of a prior topic, OR if knowing their background would meaningfully improve the prompt.
+- Mark as NOT RELEVANT if the user's message is: a new topic, a general/casual question, unrelated to prior discussion, or self-contained.
+
+Return ONLY a valid JSON object (no markdown fences, no explanation):
 {
-  "knowledgeLevel": "novice | beginner | intermediate | advanced | expert",
-  "primaryObjective": "learning | career_growth | skill_development | research | project_completion | creativity | decision_making",
-  "secondaryObjectives": ["array of additional goals inferred from context"],
-  "demonstratedStrengths": ["specific topics, tools, or skills the user clearly knows"],
-  "identifiedGaps": [
-    { "topic": "gap name", "importance": "critical | high | medium | low", "impact": "high | medium | low" }
-  ],
-  "completedWork": ["projects, tasks, or concepts already demonstrated or completed"],
-  "topicsToSkip": ["topics the user has already mastered — do not repeat these"],
-  "constraints": {
-    "time": "inferred time constraint if any, else null",
-    "budget": "inferred budget constraint if any, else null",
-    "style": "inferred learning/work style: visual | hands-on | theoretical | mixed | unknown"
-  },
-  "nextLogicalSteps": ["the 3-5 most logical immediate next steps based on their current level"],
-  "domainContext": "the primary domain or field this conversation is about",
-  "complexityPreference": "simplified | standard | detailed | expert-level"
+  "currentIntent": "one sentence describing what the user wants right now",
+  "intentCategory": "technical | creative | learning | personal | analytical | casual | continuation | decision",
+  "contextRelevant": true or false,
+  "relevanceReason": "brief reason why context is or isn't relevant",
+  "enrichment": {
+    "userLevel": "novice | beginner | intermediate | advanced | expert — only if determinable from history",
+    "relevantBackground": ["only background facts from history that directly help the current request"],
+    "style": "visual | hands-on | theoretical | mixed | unknown",
+    "topicsToSkip": ["only if user has already demonstrated mastery of topics related to current request"]
+  }
 }`;
 
   try {
-    const raw = await callGemini(apiKey, analysisPrompt, 0.3);
+    const raw = await callGemini(apiKey, gatePrompt, 0.2);
     const cleaned = raw.replace(/```json|```/g, '').trim();
     return JSON.parse(cleaned);
   } catch (e) {
-    return null; // analysis failed — proceed without profile
+    // Gate failed — proceed with no context at all (safe fallback)
+    return { contextRelevant: false, currentIntent: userPrompt, intentCategory: 'general', enrichment: {} };
   }
 }
 
-// ─── STEP 2: ADAPTIVE META-PROMPT BUILDER ────────────────────────────────────
-// Constructs a principle-based meta-prompt from the user profile.
-// Domain-agnostic — applies to learning, career, research, creativity, etc.
+// ─── STEP 2: PROMPT BUILDER ───────────────────────────────────────────────────
+// Current intent is always the PRIMARY driver.
+// Enrichment from context is injected ONLY when relevance gate passes.
 
-function buildMetaPrompt(profile, userPrompt, mode, tone) {
+function buildPrompt(userPrompt, mode, tone, gateResult) {
 
-  const baseTemplates = {
-    coding:   `You are an expert software engineer and prompt engineer.`,
-    study:    `You are an expert educator and adaptive learning coach.`,
-    writing:  `You are a professional writer and content strategist.`,
-    business: `You are a senior business consultant and strategist.`,
-    general:  `You are a highly empathetic, knowledgeable life assistant with expertise across everyday domains including health & wellness, mental health and therapy, gaming, relationships, lifestyle, fitness, hobbies, travel, nutrition, personal development, and general problem-solving.`
+  const personas = {
+    coding:   'You are an expert software engineer and prompt engineer.',
+    study:    'You are an expert educator and adaptive learning coach.',
+    writing:  'You are a professional writer and content strategist.',
+    business: 'You are a senior business consultant and strategist.',
+    general:  'You are a highly empathetic, knowledgeable assistant across health & wellness, mental health, gaming, relationships, lifestyle, fitness, hobbies, travel, nutrition, and personal development.'
   };
 
-  const modePersona = baseTemplates[mode] || baseTemplates.general;
+  const persona = personas[mode] || personas.general;
+  const intent  = gateResult?.currentIntent || userPrompt;
+  const enrich  = gateResult?.enrichment || {};
+  const useCtx  = gateResult?.contextRelevant === true;
 
-  // ── Build the contextual profile block ──────────────────────────────────────
-  let profileBlock = '';
-  if (profile) {
-    const gaps = (profile.identifiedGaps || [])
-      .sort((a, b) => {
-        const rank = { critical: 0, high: 1, medium: 2, low: 3 };
-        return (rank[a.importance] || 2) - (rank[b.importance] || 2);
-      })
-      .map(g => `${g.topic} [importance: ${g.importance}, impact: ${g.impact}]`)
-      .join(', ');
+  // ── Context enrichment block — only injected when gate passes ────────────────
+  let contextBlock = '';
+  if (useCtx && enrich) {
+    const bg   = (enrich.relevantBackground || []).join('; ');
+    const skip = (enrich.topicsToSkip || []).join(', ');
+    const lvl  = enrich.userLevel || 'unknown';
+    const style = enrich.style || 'unknown';
 
-    profileBlock = `
-=== USER CONTEXT PROFILE (derived from conversation) ===
-Knowledge Level     : ${profile.knowledgeLevel || 'unknown'}
-Primary Objective   : ${(profile.primaryObjective || 'learning').replace(/_/g, ' ')}
-Secondary Objectives: ${(profile.secondaryObjectives || []).join(', ') || 'none'}
-Domain              : ${profile.domainContext || 'general'}
-Demonstrated Skills : ${(profile.demonstratedStrengths || []).join(', ') || 'none detected'}
-Completed Work      : ${(profile.completedWork || []).join(', ') || 'none mentioned'}
-Topics to SKIP      : ${(profile.topicsToSkip || []).join(', ') || 'none'}
-Prioritized Gaps    : ${gaps || 'not identified'}
-Next Logical Steps  : ${(profile.nextLogicalSteps || []).join(', ') || 'not identified'}
-Time Constraint     : ${profile.constraints?.time || 'not specified'}
-Budget Constraint   : ${profile.constraints?.budget || 'not specified'}
-Learning Style      : ${profile.constraints?.style || 'unknown'}
-Complexity Level    : ${profile.complexityPreference || 'standard'}
-=== END PROFILE ===
+    if (bg || skip || lvl !== 'unknown') {
+      contextBlock = `
+=== RELEVANT USER BACKGROUND (use only to enrich — do not override intent) ===
+User Level          : ${lvl}
+Relevant Background : ${bg || 'none'}
+Topics to Skip      : ${skip || 'none — do not assume mastery'}
+Learning Style      : ${style}
+IMPORTANT: The above is supplementary. The user's current request below is the primary directive.
+=== END BACKGROUND ===
 `;
+    }
   }
 
-  // ── Build principle-based instructions ──────────────────────────────────────
-  const principles = `
-=== PROMPT GENERATION PRINCIPLES — APPLY ALL OF THESE ===
+  // ── Instruction block ────────────────────────────────────────────────────────
+  const instructions = `
+Generate a structured, high-quality prompt for the following request.
 
-PRINCIPLE 1 — CONTEXT AWARENESS:
-- Use the user profile above. Do NOT ask for information already available.
-- Calibrate the complexity of the generated prompt to the user's knowledge level.
-- Reference their demonstrated skills and completed work where relevant.
-- Never recommend content listed under "Topics to SKIP".
+REQUIREMENTS for the generated prompt:
+1. Role:          Define the precise expert persona the AI should adopt.
+2. Goal:          State the user's CURRENT objective clearly and specifically.
+3. Approach:      Describe HOW the AI should respond — structure, method, depth.
+4. Output Format: Specify exactly what the response should look like.
+5. Constraints:   Note any limitations, preferences, or scope boundaries.
+6. OMIT sections that add no value — keep it focused.
 
-PRINCIPLE 2 — GAP ANALYSIS INTEGRATION:
-- The generated prompt must instruct the AI to address the "Prioritized Gaps" above.
-- Explicitly direct focus toward weaknesses, not general overviews.
-- Acknowledge strengths — do not re-teach what is already mastered.
-
-PRINCIPLE 3 — PRACTICAL & OUTCOME-ORIENTED:
-- The generated prompt must push for actionable, real-world application.
-- Favor outputs like: working code, analysis reports, project plans, creative work, decisions.
-- Include instructions for the AI to show examples, demonstrations, or working implementations.
-
-PRINCIPLE 4 — PRIORITIZATION (apply to all recommendations):
-- Every topic, resource, or step should be tagged with one of:
-  [CORE] — essential, must-know for the objective
-  [RECOMMENDED] — important but not blocking
-  [OPTIONAL] — enrichment, nice to have
-  [ADVANCED] — for after core mastery is achieved
-- Order all content by: importance → impact → difficulty progression.
-
-PRINCIPLE 5 — ADAPTIVE PROGRESSION:
-- Structure the generated prompt to instruct the AI to:
-  a) Start from the user's current competency level — not from zero.
-  b) Define clear milestones before moving to more advanced content.
-  c) Build on demonstrated strengths as a foundation.
-  d) Suggest "logical next steps" that align with: ${profile?.nextLogicalSteps?.join(', ') || 'user goals'}.
-
-PRINCIPLE 6 — SPECIALIZATION PATHS:
-- Do NOT use fixed, generic paths. Let the user's stated goal (${profile?.primaryObjective || 'their objective'}) drive the path.
-- If the user has a specific goal (project, career, research), optimize every recommendation toward that end.
-- Avoid cookie-cutter curricula — make it feel bespoke.
-
-PRINCIPLE 7 — OBJECTIVE OPTIMIZATION:
-Primary objective is: ${(profile?.primaryObjective || mode).replace(/_/g, ' ')}
-- "learning": Focus on conceptual clarity, examples, analogies.
-- "career_growth": Focus on industry-relevant skills, portfolio, networking.
-- "skill_development": Focus on deliberate practice, feedback loops, projects.
-- "research": Focus on methodology, literature, analysis frameworks.
-- "project_completion": Focus on practical steps, architecture, implementation.
-- "creativity": Focus on ideation, experimentation, constraints as tools.
-- "decision_making": Focus on frameworks, tradeoffs, evidence evaluation.
-
-PRINCIPLE 8 — REDUNDANCY ELIMINATION:
-- The generated prompt must NOT include sections, steps, or recommendations that repeat anything listed in "Topics to SKIP" or "Completed Work".
-- Actively trim redundant beginner content when the user is intermediate or above.
-
-=== END PRINCIPLES ===
-`;
-
-  // ── Final meta-prompt assembly ──────────────────────────────────────────────
-  return `${modePersona} You are also an expert prompt engineer. Your task is to generate a highly personalized, principle-driven prompt based on the user's request and their context profile.
-${profileBlock}
-${principles}
-
-=== INSTRUCTIONS FOR THE GENERATED PROMPT ===
-The prompt you generate must:
-1. Begin with: "Role:" — define the precise expert persona the AI should adopt for this specific user and goal.
-2. Include: "Goal:" — the user's actual objective in specific, measurable terms.
-3. Include: "User Context:" — brief summary of their level, completed work, and constraints.
-4. Include: "Skill Gaps to Address:" — the critical and high-importance gaps to target (from profile).
-5. Include: "Approach:" — how the AI should structure its response, using the CORE/RECOMMENDED/OPTIONAL/ADVANCED tagging system.
-6. Include: "Milestones:" — clear progress checkpoints before advancing.
-7. Include: "Output Format:" — specify exactly what the response should look like (code, plan, analysis, etc.).
-8. Include: "Constraints:" — time, budget, style, level preferences.
-9. OMIT any section that doesn't apply — keep only what adds value.
+TAGGING: Where relevant, tag items as:
+[CORE] = essential  |  [RECOMMENDED] = important  |  [OPTIONAL] = enrichment  |  [ADVANCED] = post-mastery
 
 Tone: ${tone || 'professional'}
-Return ONLY the enhanced prompt. No preamble. No explanation. No meta-commentary.
+Return ONLY the enhanced prompt. No preamble. No explanation.`;
 
-=== USER'S REQUEST TO ENHANCE ===
+  return `${persona} You are also an expert prompt engineer.
+
+CURRENT USER INTENT: ${intent}
+${contextBlock}
+${instructions}
+
+USER'S MESSAGE TO ENHANCE:
 "${userPrompt}"`;
 }
 
@@ -206,23 +150,36 @@ Return ONLY the enhanced prompt. No preamble. No explanation. No meta-commentary
 
 async function handleEnhance({ prompt, mode, tone, apiKey, chatContext }, sendResponse) {
   try {
-    let profile = null;
+    let gateResult = null;
 
-    // Step 1: Analyze context for ANY mode (not just roadmap)
-    if (chatContext && chatContext.length > 30) {
-      profile = await analyzeContext(apiKey, chatContext, prompt);
+    // Only run relevance gate when context is available
+    if (chatContext && chatContext.trim().length > 30) {
+      gateResult = await detectIntentAndRelevance(apiKey, chatContext, prompt);
     }
 
-    // Step 2: Build adaptive meta-prompt and call Gemini
-    const metaPrompt = buildMetaPrompt(profile, prompt, mode, tone);
-    const enhanced = await callGemini(apiKey, metaPrompt);
+    // Build prompt — context only included if gate marked it relevant
+    const metaPrompt = buildPrompt(prompt, mode, tone, gateResult);
+    const enhanced   = await callGemini(apiKey, metaPrompt);
 
     if (!enhanced) {
       sendResponse({ error: 'Empty response from Gemini' });
       return;
     }
 
-    sendResponse({ enhanced, skillProfile: profile });
+    // Only pass enrichment back to UI when context was actually used
+    const uiProfile = (gateResult?.contextRelevant && gateResult?.enrichment)
+      ? {
+          contextUsed:    true,
+          relevanceReason: gateResult.relevanceReason,
+          knowledgeLevel: gateResult.enrichment.userLevel,
+          intentCategory: gateResult.intentCategory,
+          currentIntent:  gateResult.currentIntent,
+          topicsToSkip:   gateResult.enrichment.topicsToSkip || [],
+          demonstratedStrengths: gateResult.enrichment.relevantBackground || []
+        }
+      : null;
+
+    sendResponse({ enhanced, skillProfile: uiProfile });
 
   } catch (err) {
     sendResponse({ error: err.message });

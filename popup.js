@@ -202,39 +202,40 @@ enhanceBtn.addEventListener('click', async () => {
 
 function renderOutput(text, skillProfile) {
   let profileHtml = '';
-  if (skillProfile) {
+
+  if (skillProfile && skillProfile.contextUsed) {
+    // Context was relevant — show enrichment card
     const level    = skillProfile.knowledgeLevel || '—';
-    const obj      = (skillProfile.primaryObjective || '—').replace(/_/g, ' ');
+    const intent   = skillProfile.currentIntent  || '—';
+    const reason   = skillProfile.relevanceReason || '—';
     const strengths= (skillProfile.demonstratedStrengths || []).join(', ') || '—';
-    const topGaps  = (skillProfile.identifiedGaps || [])
-                      .filter(g => g.importance === 'critical' || g.importance === 'high')
-                      .slice(0, 3)
-                      .map(g => `${g.topic}`)
-                      .join(', ') || '—';
-    const nextSteps= (skillProfile.nextLogicalSteps || []).slice(0, 3).join(', ') || '—';
     const skip     = (skillProfile.topicsToSkip || []).join(', ') || 'none';
-    const style    = skillProfile.constraints?.style || '—';
 
     profileHtml = `
       <div class="skill-card">
-        <div class="skill-card-title">⚡ Context Analysis</div>
+        <div class="skill-card-title">⚡ Context Applied</div>
+        <div class="skill-row"><span class="skill-key">Intent</span><span class="skill-val">${intent}</span></div>
         <div class="skill-row"><span class="skill-key">Level</span><span class="skill-val">${level}</span></div>
-        <div class="skill-row"><span class="skill-key">Objective</span><span class="skill-val">${obj}</span></div>
-        <div class="skill-row"><span class="skill-key">Strengths</span><span class="skill-val">${strengths}</span></div>
-        <div class="skill-row"><span class="skill-key">Top Gaps</span><span class="skill-val gap">${topGaps}</span></div>
-        <div class="skill-row"><span class="skill-key">Next Steps</span><span class="skill-val">${nextSteps}</span></div>
+        <div class="skill-row"><span class="skill-key">Background</span><span class="skill-val">${strengths}</span></div>
         <div class="skill-row"><span class="skill-key">Skipped</span><span class="skill-val muted">${skip}</span></div>
-        <div class="skill-row"><span class="skill-key">Style</span><span class="skill-val">${style}</span></div>
+        <div class="skill-row"><span class="skill-key">Why</span><span class="skill-val" style="font-style:italic;opacity:0.7">${reason}</span></div>
+      </div>`;
+  } else if (skillProfile === null && document.getElementById('contextToggle')?.checked) {
+    // Context toggle is on but gate rejected it as irrelevant
+    profileHtml = `
+      <div class="skill-card" style="border-color:rgba(245,158,11,0.2)">
+        <div class="skill-card-title" style="color:var(--amber)">◎ Context Not Applied</div>
+        <div class="skill-row"><span class="skill-val" style="opacity:0.6;font-size:10px">Current request is unrelated to conversation history — prompt generated from intent only.</span></div>
       </div>`;
   }
 
   const html = text
-    .replace(/^(Role|Task|Goal|User Context|Skill Gaps? to Address|Approach|Milestones?|Output Format|Constraints?|Current State|Roadmap Structure|Resources? Format|Requirements?|Format|Instructions?|Phases?):/gm,
+    .replace(/^(Role|Task|Goal|User Context|Approach|Skill Gaps? to Address|Milestones?|Output Format|Constraints?|Current State|Roadmap Structure|Resources? Format|Requirements?|Format|Instructions?|Phases?):/gm,
       '<span class="tag">$1:</span>')
-    .replace(/\[CORE\]/g, '<span class="badge core">[CORE]</span>')
+    .replace(/\[CORE\]/g,        '<span class="badge core">[CORE]</span>')
     .replace(/\[RECOMMENDED\]/g, '<span class="badge rec">[RECOMMENDED]</span>')
-    .replace(/\[OPTIONAL\]/g, '<span class="badge opt">[OPTIONAL]</span>')
-    .replace(/\[ADVANCED\]/g, '<span class="badge adv">[ADVANCED]</span>')
+    .replace(/\[OPTIONAL\]/g,    '<span class="badge opt">[OPTIONAL]</span>')
+    .replace(/\[ADVANCED\]/g,    '<span class="badge adv">[ADVANCED]</span>')
     .replace(/\n/g, '<br>');
 
   outputBox.innerHTML = profileHtml + html;
